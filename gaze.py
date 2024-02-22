@@ -66,6 +66,12 @@ roll_filter = ScalarSmoothingFilter()
 corrected_gaze_filter = SmoothingFilter(window_size=5)
 length_filter = ScalarSmoothingFilter(window_size=5)
 
+def quadratic_adjustment(value):
+    adjustment_factor = 0.5
+    adjusted_value = (value ** 2) * adjustment_factor
+    if value < 0:
+        adjusted_value = -adjusted_value
+    return adjusted_value
 def draw_lines_between_points(image, face_landmarks, pairs, color=(0, 0, 255), thickness=1):
     for pair in pairs:
         point1 = face_landmarks.landmark[pair[0]]
@@ -352,9 +358,7 @@ while cap.isOpened():
                     text_position = (convergence_point[0], convergence_point[1] + 20)
                     cv2.putText(image, 'FOCUS POINT', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-                    with open(csv_file, mode='a', newline='') as file:
-                        writer = csv.writer(file)
-                        writer.writerow([temp_gaze[0], temp_gaze[1]])
+
 
             else :
                 if isinstance(temp_gaze, tuple) and len(temp_gaze) == 3 and all(
@@ -370,6 +374,10 @@ while cap.isOpened():
                     cv2.putText(image, 'FOCUS POINT', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
                 else:
                     print("temp_gaze is not in the correct format:", temp_gaze)
+
+            with open(csv_file, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([quadratic_adjustment(temp_gaze[0]), quadratic_adjustment(temp_gaze[1])])
 
             # DRAW IRIS
             haut = (face_landmarks.landmark[left_pupil_pairs[0][0]].x * image.shape[1],
