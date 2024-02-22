@@ -2,15 +2,27 @@ import mediapipe as mp
 import cv2
 import numpy as np
 from math import acos, degrees
+import os, csv
 
 webcam = False
 video = r"C:\Users\colonel\Desktop\meas\assets\videos\Isadora.mp4"
-scale_factor = .5
-vertical_correction = 0.8
-horizontal_correction = -0.2
+
+horizontal_scale_factor = .25
+vertical_scale_factor = 0.05
+
+vertical_correction = 3.8
+horizontal_correction = -0.5
+
 vector_scale = 100
-smooth_factor = 5
-vector_depth = -0.05
+smooth_factor = 2
+vector_depth = -1.2
+
+headers = ['Convergence_X', 'Convergence_Y']
+csv_file = r"C:\Users\colonel\Desktop\gaze.csv"
+if not os.path.exists(csv_file) or os.path.getsize('gaze.csv') == 0:
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(headers)
 
 class ScalarSmoothingFilter:
     def __init__(self, window_size=smooth_factor):
@@ -52,6 +64,7 @@ yaw_filter = ScalarSmoothingFilter()
 pitch_filter = ScalarSmoothingFilter()
 roll_filter = ScalarSmoothingFilter()
 corrected_gaze_filter = SmoothingFilter(window_size=5)
+length_filter = ScalarSmoothingFilter(window_size=5)
 
 def draw_lines_between_points(image, face_landmarks, pairs, color=(0, 0, 255), thickness=1):
     for pair in pairs:
@@ -62,11 +75,9 @@ def draw_lines_between_points(image, face_landmarks, pairs, color=(0, 0, 255), t
         cv2.line(image, (x1, y1), (x2, y2), color, thickness)
 
 
-def draw_corrected_gaze_vector(image, eye_center, corrected_gaze_vector, scale=100, color=(0, 255, 0), thickness=1):
+def draw_corrected_gaze_vector(image, eye_center, corrected_gaze_vector, scale=100, color=(0, 255, 250), thickness=2):
 
     z_offset = vector_depth
-
-    # Coordonnées du point d'origine décalé
     eye_center_shifted = (eye_center[0], eye_center[1], eye_center[2] + z_offset)
 
     # Coordonnées du point de fin du vecteur
@@ -82,23 +93,29 @@ def correct_gaze_vector(yaw, pitch, roll, gaze_vector):
     yaw_rad = np.radians(yaw)
     pitch_rad = np.radians(pitch)
     roll_rad = np.radians(roll)
-    R_yaw = np.array([[np.cos(yaw_rad), -np.sin(yaw_rad), 0],[np.sin(yaw_rad), np.cos(yaw_rad), 0],[0, 0, 1]])
-    R_pitch = np.array([[np.cos(pitch_rad), 0, np.sin(pitch_rad)],[0, 1, 0],[-np.sin(pitch_rad), 0, np.cos(pitch_rad)]])
-    R_roll = np.array([[1, 0, 0],[0, np.cos(roll_rad), -np.sin(roll_rad)],[0, np.sin(roll_rad), np.cos(roll_rad)]])
+    # Create rotation matrices
+    R_yaw = np.array([[np.cos(yaw_rad), -np.sin(yaw_rad), 0],
+                      [np.sin(yaw_rad), np.cos(yaw_rad), 0],
+                      [0, 0, 1]])
+    R_pitch = np.array([[np.cos(pitch_rad), 0, np.sin(pitch_rad)],
+                        [0, 1, 0],
+                        [-np.sin(pitch_rad), 0, np.cos(pitch_rad)]])
+    R_roll = np.array([[1, 0, 0],
+                       [0, np.cos(roll_rad), -np.sin(roll_rad)],
+                       [0, np.sin(roll_rad), np.cos(roll_rad)]])
+    # Combine rotation matrices
     R = np.dot(R_roll, np.dot(R_pitch, R_yaw))
-    gaze_length = np.linalg.norm(gaze_vector)
-
-    if gaze_length > 0:
-        normalized_gaze_vector = gaze_vector / gaze_length
+    # Measure original length of the gaze vector
+    original_length = np.linalg.norm(gaze_vector)
+    # Normalize the gaze vector if it's not a zero vector
+    if original_length > 0:
+        normalized_gaze_vector = gaze_vector / original_length
     else:
         normalized_gaze_vector = gaze_vector
-    # Extend the 3x3 rotation matrix to a 4x4 transformation matrix
-    R_homogeneous = np.eye(4)
-    R_homogeneous[:3, :3] = R
-
-    corrected_gaze_vector = np.dot(R_homogeneous.T, np.append(normalized_gaze_vector, 1))[:3]
-
-    return corrected_gaze_vector[:3]
+    # Apply the rotation to the normalized gaze vector
+    corrected_gaze_vector = np.dot(R, normalized_gaze_vector)
+    # Return both the corrected gaze vector and the original length
+    return corrected_gaze_vector, original_length
 
 def estimate_head_rotation(face_landmarks, image):
     height, width, _ = image.shape
@@ -281,8 +298,14 @@ while cap.isOpened():
                 smoothed_pitch = pitch_filter.update(pitch)
                 smoothed_roll = roll_filter.update(roll)
 
-                left_corrected_gaze_vector = correct_gaze_vector(smoothed_yaw, smoothed_pitch, smoothed_roll, left_gaze_vector)
-                right_corrected_gaze_vector = correct_gaze_vector(smoothed_yaw, smoothed_pitch, smoothed_roll, right_gaze_vector)
+                left_corrected_gaze_vector, original_left_length = correct_gaze_vector(smoothed_yaw, smoothed_pitch, smoothed_roll, left_gaze_vector)
+                right_corrected_gaze_vector, original_right_length = correct_gaze_vector(smoothed_yaw, smoothed_pitch, smoothed_roll, right_gaze_vector)
+
+                original_left_length = length_filter.update(original_left_length)
+                original_right_length = length_filter.update(original_right_length)
+
+                left_corrected_gaze_vector *= original_left_length
+                right_corrected_gaze_vector *= original_right_length
 
                 left_corrected_gaze_vector[1] += vertical_correction
                 right_corrected_gaze_vector[1] += vertical_correction
@@ -290,15 +313,15 @@ while cap.isOpened():
                 right_corrected_gaze_vector[0] += horizontal_correction
 
                 left_corrected_gaze_vector = (
-                    left_corrected_gaze_vector[0] * scale_factor,
-                    left_corrected_gaze_vector[1] * scale_factor,
-                    left_corrected_gaze_vector[2] * scale_factor
+                    left_corrected_gaze_vector[0] * horizontal_scale_factor ,
+                    left_corrected_gaze_vector[1] * vertical_scale_factor ,
+                    left_corrected_gaze_vector[2]
                 )
 
                 right_corrected_gaze_vector = (
-                    right_corrected_gaze_vector[0] * scale_factor,
-                    right_corrected_gaze_vector[1] * scale_factor,
-                    right_corrected_gaze_vector[2] * scale_factor
+                    right_corrected_gaze_vector[0] * horizontal_scale_factor ,
+                    right_corrected_gaze_vector[1] * vertical_scale_factor ,
+                    right_corrected_gaze_vector[2]
                 )
 
                 left_smoothed_corrected_gaze_vector = corrected_gaze_filter.update(left_corrected_gaze_vector)
@@ -328,6 +351,10 @@ while cap.isOpened():
                     cv2.drawMarker(image, convergence_point, (255, 0, 255), cv2.MARKER_CROSS)
                     text_position = (convergence_point[0], convergence_point[1] + 20)
                     cv2.putText(image, 'FOCUS POINT', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                    with open(csv_file, mode='a', newline='') as file:
+                        writer = csv.writer(file)
+                        writer.writerow([temp_gaze[0], temp_gaze[1]])
 
             else :
                 if isinstance(temp_gaze, tuple) and len(temp_gaze) == 3 and all(
