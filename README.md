@@ -12,3 +12,12 @@ Manual parameters are used to compensate for the lack of specific information ab
 3. Quadratic Smoothing: Apply quadratic smoothing to mitigate the compensatory effect on gaze due to head rotation, enhancing the stability and accuracy of gaze tracking.
 4. Save Focus Point Coordinates: Store the x and y coordinates of the focus point in a CSV file, allowing for data analysis and record-keeping of gaze patterns over time.
 5. 3D Vector Export: The 3D gaze vector can also be exported, providing a comprehensive representation of the gaze direction for further analysis or integration with other systems.
+
+
+License
+-------
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+For more informations, see <https://www.gnu.org/licenses/>.
