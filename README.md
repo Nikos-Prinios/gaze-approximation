@@ -13,6 +13,7 @@ Manual parameters are used to compensate for the lack of specific information ab
 4. Save Focus Point Coordinates: Store the x and y coordinates of the focus point in a CSV file, allowing for data analysis and record-keeping of gaze patterns over time.
 5. 3D Vector Export: The 3D gaze vector can also be exported, providing a comprehensive representation of the gaze direction for further analysis or integration with other systems.
 
+**This script is currently in development. Feedback, suggestions, and contributions are welcome and greatly appreciated.**
 
 License
 -------
