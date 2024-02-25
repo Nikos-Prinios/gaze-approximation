@@ -6,21 +6,22 @@ import os, csv
 
 # Initial Configuration
 webcam = False
-params = True
+params = False
+quadratic = False
 video = "/home/colonel/Bureau/meas/assets/videos/Alejandro.mp4"  # Here, your video
 fullscreen = True
 
 # Manual parameters
-horizontal_scale_factor = 19
-vertical_scale_factor = 20
+horizontal_scale_factor = -25
+vertical_scale_factor = -18
 vertical_correction = 9
-horizontal_correction = -3
-vector_scale = 10
+horizontal_correction = -6
+vector_scale = 2
 smooth_factor = 1
 vector_depth = -4
 focus_x = 930
-focus_y = 570
-blink_threshold = 15
+focus_y = 510
+blink_threshold = 25
 
 def nothing(x):
     pass
@@ -71,6 +72,11 @@ pitch_filter = ScalarSmoothingFilter()
 roll_filter = ScalarSmoothingFilter()
 corrected_gaze_filter = SmoothingFilter(window_size=5)
 length_filter = ScalarSmoothingFilter(window_size=5)
+
+def map_value(value, from_min, from_max, to_min, to_max):
+    value = max(min(value, from_max), from_min)
+    return (value - from_min) / (from_max - from_min) * (to_max - to_min) + to_min
+
 
 def quadratic_adjustment(value):
     adjustment_factor = 0.5
@@ -168,7 +174,8 @@ right_pupil_pairs = [(475, 477), (476, 474)]
 
 temp_gaze = (0, 0, 0)
 smoothed_convergence_point = (0, 0)
-
+left_smoothed_corrected_gaze_vector = (0, 0, 0)
+right_smoothed_corrected_gaze_vector = (0, 0, 0)
 # Initializing MediaPipe Face Mesh.
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
@@ -265,7 +272,7 @@ while cap.isOpened():
 
             left_gaze_vector = (left_pupil_center[0] - left_eye_center[0],
                               left_pupil_center[1] - left_eye_center[1],
-                              left_pupil_center[2] - left_eye_center[2])
+                              -left_pupil_center[2] - left_eye_center[2])
 
 
             # Right pupil
@@ -303,7 +310,7 @@ while cap.isOpened():
 
             right_gaze_vector = (right_pupil_center[0] - right_eye_center[0],
                               right_pupil_center[1] - right_eye_center[1],
-                              right_pupil_center[2] - right_eye_center[2])
+                              -right_pupil_center[2] - right_eye_center[2])
 
             cv2.line(image, (int(left_eye_center[0]), int(left_eye_center[1])),
                      (int(left_eye_center[0] + left_gaze_vector[0]), int(left_eye_center[1] + left_gaze_vector[1])), (0, 0, 255), 1)
@@ -375,8 +382,13 @@ while cap.isOpened():
                 smoothed_gaze_y = adjusted_gaze_y
 
                 # Lissage quadratique ?
-                # smoothed_gaze_x = quadratic_adjustment(adjusted_gaze_x - image_center[0])
-                # smoothed_gaze_y = quadratic_adjustment(adjusted_gaze_y - image_center[1])
+                if quadratic :
+                    smoothed_gaze_x = quadratic_adjustment(adjusted_gaze_x - image_center[0])
+                    smoothed_gaze_y = quadratic_adjustment(adjusted_gaze_y - image_center[1])
+
+                    smoothed_gaze_x = map_value(smoothed_gaze_x, -10000, 10000, -400,400)
+                    smoothed_gaze_y = map_value(smoothed_gaze_y, -10000, 10000, -400, 400)
+
 
                 # Calcul du point de convergence ajusté et lissé
                 smoothed_convergence_point = (int(image_center[0] + smoothed_gaze_x), int(image_center[1] + smoothed_gaze_y))
