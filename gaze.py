@@ -4,22 +4,30 @@ import numpy as np
 from math import acos, degrees
 import os, csv
 
+# Initial Configuration
 webcam = False
-video = r"C:\Users\colonel\Desktop\meas\assets\videos\Isadora.mp4"
+params = True
+video = "/home/colonel/Bureau/meas/assets/videos/Alejandro.mp4"  # Here, your video
+fullscreen = True
 
-horizontal_scale_factor = .25
-vertical_scale_factor = 0.05
+# Manual parameters
+horizontal_scale_factor = 19
+vertical_scale_factor = 20
+vertical_correction = 9
+horizontal_correction = -3
+vector_scale = 10
+smooth_factor = 1
+vector_depth = -4
+focus_x = 930
+focus_y = 570
+blink_threshold = 15
 
-vertical_correction = 3.8
-horizontal_correction = -0.5
+def nothing(x):
+    pass
 
-vector_scale = 100
-smooth_factor = 2
-vector_depth = -1.2
-
-headers = ['Convergence_X', 'Convergence_Y']
-csv_file = r"C:\Users\colonel\Desktop\gaze.csv"
-if not os.path.exists(csv_file) or os.path.getsize('gaze.csv') == 0:
+headers = ['X', 'Y']
+csv_file = '/home/colonel/Bureau/gaze.csv'
+if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
     with open(csv_file, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(headers)
@@ -45,14 +53,12 @@ class SmoothingFilter:
         if len(self.values) > self.window_size:
             self.values.pop(0)
 
-        # Initialization of sums for each vector component
         sum_x, sum_y, sum_z = 0.0, 0.0, 0.0
         for value in self.values:
             sum_x += value[0]
             sum_y += value[1]
             sum_z += value[2]
 
-        # Calculating the average for each component
         average_x = sum_x / len(self.values)
         average_y = sum_y / len(self.values)
         average_z = sum_z / len(self.values)
@@ -72,6 +78,7 @@ def quadratic_adjustment(value):
     if value < 0:
         adjusted_value = -adjusted_value
     return adjusted_value
+
 def draw_lines_between_points(image, face_landmarks, pairs, color=(0, 0, 255), thickness=1):
     for pair in pairs:
         point1 = face_landmarks.landmark[pair[0]]
@@ -81,18 +88,13 @@ def draw_lines_between_points(image, face_landmarks, pairs, color=(0, 0, 255), t
         cv2.line(image, (x1, y1), (x2, y2), color, thickness)
 
 
-def draw_corrected_gaze_vector(image, eye_center, corrected_gaze_vector, scale=100, color=(0, 255, 250), thickness=2):
-
+def draw_corrected_gaze_vector(image, pupil_center, corrected_gaze_vector, scale=100, color=(0, 255, 250), thickness=2):
     z_offset = vector_depth
-    eye_center_shifted = (eye_center[0], eye_center[1], eye_center[2] + z_offset)
-
-    # Coordonnées du point de fin du vecteur
-    end_point = (eye_center[0] + corrected_gaze_vector[0] * scale,
-                 eye_center[1] + corrected_gaze_vector[1] * scale,
-                 eye_center[2] + corrected_gaze_vector[2] * scale)
-
-    # Dessiner le vecteur
-    cv2.arrowedLine(image, (int(eye_center_shifted[0]), int(eye_center_shifted[1])),(int(end_point[0]), int(end_point[1])), color, thickness)
+    pupil_center_shifted = (pupil_center[0], pupil_center[1], pupil_center[2] + z_offset)
+    end_point = (pupil_center[0] + corrected_gaze_vector[0] * scale,
+                 pupil_center[1] + corrected_gaze_vector[1] * scale,
+                 pupil_center[2] + corrected_gaze_vector[2] * scale)
+    cv2.arrowedLine(image, (int(pupil_center_shifted[0]), int(pupil_center_shifted[1])), (int(end_point[0]), int(end_point[1])), color, thickness)
 
 def correct_gaze_vector(yaw, pitch, roll, gaze_vector):
     # Convert rotation angles to radians
@@ -157,6 +159,15 @@ def estimate_head_rotation(face_landmarks, image):
     roll -= 90
     return yaw, pitch, roll
 
+# Dictionary to store landmark coordinates
+eye_coords = {}
+left_eye_pairs = [(226, 244), (247, 233), (30, 232), (29, 231), (27, 230), (28, 229), (56, 228), (33, 133)]
+left_pupil_pairs = [(470, 472), (471, 469)]
+right_eye_pairs = [(463, 446), (414, 261), (286, 448), (258, 449), (257, 450), (259, 451), (260, 452), (467, 453)]
+right_pupil_pairs = [(475, 477), (476, 474)]
+
+temp_gaze = (0, 0, 0)
+smoothed_convergence_point = (0, 0)
 
 # Initializing MediaPipe Face Mesh.
 mp_face_mesh = mp.solutions.face_mesh
@@ -172,47 +183,55 @@ if webcam :
 else :
     cap = cv2.VideoCapture(video)
 
-# Dictionary to store landmark coordinates
-eye_coords = {}
+# Initializing the Controls window.
+if params:
+    cv2.namedWindow('Controls')
+    cv2.createTrackbar('Horizontal Amplitude', 'Controls', 25, 100, nothing)
+    cv2.createTrackbar('Vertical Amplitude', 'Controls', 30, 100, nothing)
+    cv2.createTrackbar('Vertical Correction', 'Controls', 11, 360, nothing)
+    cv2.createTrackbar('Horizontal Correction', 'Controls', 5, 360, nothing)
+    cv2.createTrackbar('vector scale', 'Controls', 40, 100, nothing)
+    cv2.createTrackbar('smooth factor', 'Controls', 0, 100, nothing)
+    cv2.createTrackbar('vector depth', 'Controls', 1, 10, nothing)
+    cv2.createTrackbar('Blink Threshold', 'Controls', 1, 40, nothing)
+    cv2.createTrackbar('Focus X', 'Controls', 0, 200, nothing)  # Initialisé au centre
+    cv2.createTrackbar('Focus Y', 'Controls', 0, 200, nothing)  # Initialisé au centre
 
-
-left_eye_pairs = [(226, 244), (247, 233), (30, 232), (29, 231), (27, 230), (28, 229), (56, 228), (33, 133)]
-left_pupil_pairs = [(470, 472), (471, 469)]
-right_eye_pairs = [(463, 446), (414, 261), (286, 448), (258, 449), (257, 450), (259, 451), (260, 452), (467, 453)]
-right_pupil_pairs = [(475, 477), (476, 474)]
-
-temp_gaze = (0, 0, 0)
 
 while cap.isOpened():
+
+    if params:
+        horizontal_scale_factor = (cv2.getTrackbarPos('Horizontal Amplitude', 'Controls')-50)
+        vertical_scale_factor = (cv2.getTrackbarPos('Vertical Amplitude', 'Controls') - 50)
+        vertical_correction = (cv2.getTrackbarPos('Vertical Correction', 'Controls') -180 )
+        horizontal_correction = (cv2.getTrackbarPos('Horizontal Correction', 'Controls') -180 )
+        vector_scale = (cv2.getTrackbarPos('Vector Scale', 'Controls') )
+        smooth_factor = (cv2.getTrackbarPos('smooth factor', 'Controls')+1)
+        vector_depth = (cv2.getTrackbarPos('vector depth', 'Controls') -5)
+        blink_threshold = (cv2.getTrackbarPos('Blink Threshold', 'Controls'))
+        focus_x = (cv2.getTrackbarPos('Focus X', 'Controls')-50)*30
+        focus_y = (cv2.getTrackbarPos('Focus Y', 'Controls')-50)*30
+
     success, image = cap.read()
     if not success:
         break
 
+    # Image info
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image_rgb.flags.writeable = False
     results = face_mesh.process(image_rgb)
     image_rgb.flags.writeable = True
-
     image_center = (image.shape[1] // 2, image.shape[0] // 2)
-
-    # Cross
     height, width = image.shape[:2]
     center_x, center_y = width // 2, height // 2
-    color = (255, 255, 255)
-    thickness = 1
-    cv2.line(image, (center_x, 0), (center_x, height), color, thickness)
-    cv2.line(image, (0, center_y), (width, center_y), color, thickness)
 
-    # Update processing in the main loop
+    # main loop
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
             left_eye_points, right_eye_points = [], []
             left_pupil_points, right_pupil_points = [], []
 
-
-
-            ############### LEFT
-
+            # Left pupil
             for a, b in left_eye_pairs:
                 pa = (face_landmarks.landmark[a].x * image.shape[1],
                       face_landmarks.landmark[a].y * image.shape[0],
@@ -248,8 +267,8 @@ while cap.isOpened():
                               left_pupil_center[1] - left_eye_center[1],
                               left_pupil_center[2] - left_eye_center[2])
 
-            ############# RIGHT
 
+            # Right pupil
             for a, b in right_eye_pairs:
                 pa = (face_landmarks.landmark[a].x * image.shape[1],
                       face_landmarks.landmark[a].y * image.shape[0],
@@ -293,9 +312,9 @@ while cap.isOpened():
                      (int(right_eye_center[0] + right_gaze_vector[0]), int(right_eye_center[1] + right_gaze_vector[1])), (0, 0, 255), 1)
 
             # Blink
-            blink_threshold = 35
             right_eye_blink_distance = face_landmarks.landmark[145].y * image.shape[0] - face_landmarks.landmark[
                 159].y * image.shape[0]
+            print("Eye apperture : " + str(right_eye_blink_distance))
 
             if right_eye_blink_distance > blink_threshold:
                 yaw, pitch, roll = estimate_head_rotation(face_landmarks, image)
@@ -333,107 +352,117 @@ while cap.isOpened():
                 left_smoothed_corrected_gaze_vector = corrected_gaze_filter.update(left_corrected_gaze_vector)
                 right_smoothed_corrected_gaze_vector = corrected_gaze_filter.update(right_corrected_gaze_vector)
 
-                draw_corrected_gaze_vector(image, left_eye_center, left_smoothed_corrected_gaze_vector, vector_scale)
-                draw_corrected_gaze_vector(image, right_eye_center, right_smoothed_corrected_gaze_vector, vector_scale)
-
-
                 average_gaze_vector = (
                     (left_smoothed_corrected_gaze_vector[0] + right_smoothed_corrected_gaze_vector[0]) / 2,
                     (left_smoothed_corrected_gaze_vector[1] + right_smoothed_corrected_gaze_vector[1]) / 2,
                     (left_smoothed_corrected_gaze_vector[2] + right_smoothed_corrected_gaze_vector[2]) / 2
                 )
 
-                '''draw_corrected_gaze_vector(image, left_eye_center, average_gaze_vector,vector_scale)
-                draw_corrected_gaze_vector(image, right_eye_center, average_gaze_vector,vector_scale)'''
 
                 temp_gaze = average_gaze_vector
+            else:
+                average_gaze_vector = temp_gaze
 
+            if isinstance(average_gaze_vector, tuple) and len(average_gaze_vector) == 3:
+                # Dessiner seulement les vecteurs corrigés et lissés pour chaque œil
+                draw_corrected_gaze_vector(image, left_pupil_center, left_smoothed_corrected_gaze_vector, vector_scale,(0, 255, 0))  # Couleur modifiée pour distinguer
+                draw_corrected_gaze_vector(image, right_pupil_center, right_smoothed_corrected_gaze_vector,vector_scale, (0, 255, 0))  # Couleur modifiée pour distinguer
 
-                if temp_gaze != (0, 0, 0):
-                    convergence_point = (
-                        int(image_center[0] + temp_gaze[0] * 100),
-                        int(image_center[1] + temp_gaze[1] * 100)
-                    )
-                    cv2.drawMarker(image, convergence_point, (255, 0, 255), cv2.MARKER_CROSS)
-                    text_position = (convergence_point[0], convergence_point[1] + 20)
-                    cv2.putText(image, 'FOCUS POINT', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                adjusted_gaze_x = temp_gaze[0] + (focus_x - image_center[0])
+                adjusted_gaze_y = temp_gaze[1]  + (focus_y - image_center[1])
 
+                smoothed_gaze_x = adjusted_gaze_x
+                smoothed_gaze_y = adjusted_gaze_y
 
+                # Lissage quadratique ?
+                # smoothed_gaze_x = quadratic_adjustment(adjusted_gaze_x - image_center[0])
+                # smoothed_gaze_y = quadratic_adjustment(adjusted_gaze_y - image_center[1])
 
-            else :
-                if isinstance(temp_gaze, tuple) and len(temp_gaze) == 3 and all(
-                        isinstance(num, (float, int)) for num in temp_gaze):
-                    draw_corrected_gaze_vector(image, left_eye_center, temp_gaze)
-                    draw_corrected_gaze_vector(image, right_eye_center, temp_gaze)
-                    convergence_point = (
-                        int(image_center[0] + temp_gaze[0] * 100),
-                        int(image_center[1] + temp_gaze[1] * 100)
-                    )
-                    cv2.drawMarker(image, convergence_point, (255, 0, 255), cv2.MARKER_CROSS)
-                    text_position = (convergence_point[0], convergence_point[1] + 20)
-                    cv2.putText(image, 'FOCUS POINT', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                else:
-                    print("temp_gaze is not in the correct format:", temp_gaze)
+                # Calcul du point de convergence ajusté et lissé
+                smoothed_convergence_point = (int(image_center[0] + smoothed_gaze_x), int(image_center[1] + smoothed_gaze_y))
 
-            with open(csv_file, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([quadratic_adjustment(temp_gaze[0]), quadratic_adjustment(temp_gaze[1])])
+                # Enregistrement des valeurs ajustées et lissées dans le fichier CSV
+                with open(csv_file, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([smoothed_gaze_x, smoothed_gaze_y])
 
-            # DRAW IRIS
-            haut = (face_landmarks.landmark[left_pupil_pairs[0][0]].x * image.shape[1],
-                    face_landmarks.landmark[left_pupil_pairs[0][0]].y * image.shape[0])
-            bas = (face_landmarks.landmark[left_pupil_pairs[0][1]].x * image.shape[1],
-                   face_landmarks.landmark[left_pupil_pairs[0][1]].y * image.shape[0])
-            gauche = (face_landmarks.landmark[left_pupil_pairs[1][0]].x * image.shape[1],
-                      face_landmarks.landmark[left_pupil_pairs[1][0]].y * image.shape[0])
-            droite = (face_landmarks.landmark[left_pupil_pairs[1][1]].x * image.shape[1],
-                      face_landmarks.landmark[left_pupil_pairs[1][1]].y * image.shape[0])
+            # Onscreen markers and texts
+            cv2.line(image, (center_x, 0), (center_x, height), (255, 255, 255), 1)
+            cv2.line(image, (0, center_y), (width, center_y), (255, 255, 255), 1)
 
+            cv2.drawMarker(image, smoothed_convergence_point, (255, 0, 255), cv2.MARKER_CROSS)
+            smoothed_text_position = (smoothed_convergence_point[0], smoothed_convergence_point[1] + 20)
+            cv2.putText(image, 'FOCUS POINT', smoothed_text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            haut = (face_landmarks.landmark[left_pupil_pairs[0][0]].x * image.shape[1], face_landmarks.landmark[left_pupil_pairs[0][0]].y * image.shape[0])
+            bas = (face_landmarks.landmark[left_pupil_pairs[0][1]].x * image.shape[1], face_landmarks.landmark[left_pupil_pairs[0][1]].y * image.shape[0])
+            gauche = (face_landmarks.landmark[left_pupil_pairs[1][0]].x * image.shape[1], face_landmarks.landmark[left_pupil_pairs[1][0]].y * image.shape[0])
+            droite = (face_landmarks.landmark[left_pupil_pairs[1][1]].x * image.shape[1], face_landmarks.landmark[left_pupil_pairs[1][1]].y * image.shape[0])
             diametre_vertical = np.linalg.norm(np.array(haut) - np.array(bas))
             diametre_horizontal = np.linalg.norm(np.array(gauche) - np.array(droite))
             rayon = int((diametre_vertical + diametre_horizontal) / 4)
             cv2.circle(image, (int(left_pupil_center[0]), int(left_pupil_center[1])), rayon, (0, 255, 255),1)
-
-            haut = (face_landmarks.landmark[right_pupil_pairs[0][0]].x * image.shape[1],
-                    face_landmarks.landmark[right_pupil_pairs[0][0]].y * image.shape[0])
-            bas = (face_landmarks.landmark[right_pupil_pairs[0][1]].x * image.shape[1],
-                   face_landmarks.landmark[right_pupil_pairs[0][1]].y * image.shape[0])
-            gauche = (face_landmarks.landmark[right_pupil_pairs[1][0]].x * image.shape[1],
-                      face_landmarks.landmark[right_pupil_pairs[1][0]].y * image.shape[0])
-            droite = (face_landmarks.landmark[right_pupil_pairs[1][1]].x * image.shape[1],
-                      face_landmarks.landmark[right_pupil_pairs[1][1]].y * image.shape[0])
-
+            haut = (face_landmarks.landmark[right_pupil_pairs[0][0]].x * image.shape[1], face_landmarks.landmark[right_pupil_pairs[0][0]].y * image.shape[0])
+            bas = (face_landmarks.landmark[right_pupil_pairs[0][1]].x * image.shape[1], face_landmarks.landmark[right_pupil_pairs[0][1]].y * image.shape[0])
+            gauche = (face_landmarks.landmark[right_pupil_pairs[1][0]].x * image.shape[1], face_landmarks.landmark[right_pupil_pairs[1][0]].y * image.shape[0])
+            droite = (face_landmarks.landmark[right_pupil_pairs[1][1]].x * image.shape[1], face_landmarks.landmark[right_pupil_pairs[1][1]].y * image.shape[0])
             diametre_vertical = np.linalg.norm(np.array(haut) - np.array(bas))
             diametre_horizontal = np.linalg.norm(np.array(gauche) - np.array(droite))
             rayon = int((diametre_vertical + diametre_horizontal) / 4)
             cv2.circle(image, (int(right_pupil_center[0]), int(right_pupil_center[1])), rayon, (0, 255, 255), 1)
-
-            # eyes center
             pairs_to_draw = [(33, 133), (159, 145), (463, 263), (386, 374)]
             draw_lines_between_points(image, face_landmarks, [(33, 133), (159, 145), (463, 263), (386, 374)],color=(255, 0, 0), thickness=1)
-
-            # Head vector
             landmark_10 = (int(face_landmarks.landmark[10].x * image.shape[1]), int(face_landmarks.landmark[10].y * image.shape[0]))
             landmark_175 = (int(face_landmarks.landmark[175].x * image.shape[1]), int(face_landmarks.landmark[175].y * image.shape[0]))
             landmark_50 = (int(face_landmarks.landmark[50].x * image.shape[1]), int(face_landmarks.landmark[50].y * image.shape[0]))
             landmark_280 = (int(face_landmarks.landmark[280].x * image.shape[1]), int(face_landmarks.landmark[280].y * image.shape[0]))
-
             rotation_vector_3 = (landmark_10[0] - landmark_175[0], landmark_10[1] - landmark_175[1])
             rotation_vector_4 = (-rotation_vector_3[0], -rotation_vector_3[1])
             rotation_vector_1 = (landmark_50[0] - landmark_280[0], landmark_50[1] - landmark_280[1])
             rotation_vector_2 = (-rotation_vector_1[0], -rotation_vector_1[1])
-
             cv2.arrowedLine(image, landmark_50,(landmark_50[0] + rotation_vector_1[0], landmark_50[1] + rotation_vector_1[1]), (0, 255, 0),2)
             cv2.arrowedLine(image, landmark_280,(landmark_280[0] + rotation_vector_2[0], landmark_280[1] + rotation_vector_2[1]),(0, 255, 0), 2)
             cv2.arrowedLine(image, landmark_10,(landmark_10[0] + rotation_vector_3[0], landmark_10[1] + rotation_vector_3[1]), (0, 255, 0),2)
             cv2.arrowedLine(image, landmark_175,(landmark_175[0] + rotation_vector_4[0], landmark_175[1] + rotation_vector_4[1]),(0, 255, 0), 2)
 
+            # variables
+            cv2.putText(image, f'Horiz Scale: {horizontal_scale_factor}', (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Vert Scale: {vertical_scale_factor}', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Vert Correction: {vertical_correction}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Horiz Correction: {horizontal_correction}', (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Vector Scale: {vector_scale}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Smooth Factor: {smooth_factor}', (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Vector Depth: {vector_depth}', (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
+            cv2.putText(image, f'Focus X: {smoothed_convergence_point[0]}', (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(image, f'Focus Y: {smoothed_convergence_point[1]}', (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+
     # Show the resulting image.
-    cv2.imshow('MediaPipe FaceMesh', image)
+    if fullscreen:
+        cv2.namedWindow('MediaPipe FaceMesh', cv2.WINDOW_NORMAL)  # Change WINDOW_AUTOSIZE to WINDOW_NORMAL
+        cv2.setWindowProperty('MediaPipe FaceMesh', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        cv2.imshow('MediaPipe FaceMesh', image)
+    else:
+        cv2.imshow('MediaPipe FaceMesh', cv2.resize(image, (int(image.shape[1] * 0.5), int(image.shape[0] * 0.5))))
+
 
     # Press 'q' to exit the loop.
     if cv2.waitKey(5) & 0xFF == ord('q'):
         break
+
+if params:
+    print(" ")
+    print(" CHOSEN PARAMETERS: ")
+    print("-----------------")
+    print(f"Horizontal Amplitude: {(cv2.getTrackbarPos('Horizontal Amplitude', 'Controls') - 50)}")
+    print(f"Vertical Amplitude: {(cv2.getTrackbarPos('Vertical Amplitude', 'Controls') - 50)}")
+    print(f"Vertical Correction: {(cv2.getTrackbarPos('Vertical Correction', 'Controls') - 180)}")
+    print(f"Horizontal Correction: {(cv2.getTrackbarPos('Horizontal Correction', 'Controls') - 180)}")
+    print(f"Vector Scale: {cv2.getTrackbarPos('vector scale', 'Controls')}")
+    print(f"Smooth Factor: {(cv2.getTrackbarPos('smooth factor', 'Controls') + 1)}")
+    print(f"Vector Depth: {(cv2.getTrackbarPos('vector depth', 'Controls') - 5)}")
+    print(f"Focus X: {(cv2.getTrackbarPos('Focus X', 'Controls') - 50) * 30}")
+    print(f"Focus Y: {(cv2.getTrackbarPos('Focus Y', 'Controls') - 50) * 30}")
+    print("-----------------")
 
 # Release resources and close opened windows.
 cap.release()
