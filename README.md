@@ -1,4 +1,4 @@
-# gaze-approximation
+# gaze-estimation (part of ΜΕΑΣ research project)
 A gaze approximation solution using mediapipe and opencv
 
 ![Sample](Alejandro.png)
